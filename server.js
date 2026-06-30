@@ -108,5 +108,43 @@ async function logToSheet(row) {
   } catch (e) { console.error("sheet error", e); }
 }
 
+// ====== مسار ManyChat ======
+// ManyChat بيبعت POST فيه رسالة المستخدم، والسيرفر بيرجّع الردّ مباشرة بصيغة JSON.
+// بـ ManyChat: External Request → Method POST → Body JSON: {"id":"{{user_id}}","text":"{{last_input_text}}"}
+// والردّ بيرجع فيه version+content عشان ManyChat يعرضه مباشرة (Dynamic Block format).
+app.post("/manychat", async (req, res) => {
+  try {
+    const id = String(req.body.id || req.body.subscriber_id || "anon");
+    const text = (req.body.text || req.body.message || "").toString().trim();
+    if (!text) {
+      return res.json(mcReply("أهلين! كيف بقدر أساعدك؟ 😊"));
+    }
+
+    const history = convos.get(id) || [];
+    history.push({ role: "user", content: text });
+
+    const brain = await callBrain(history);
+    history.push({ role: "assistant", content: brain.reply });
+    convos.set(id, history.slice(-12));
+
+    // سجّل بالـ CRM (ما بيوقف الردّ)
+    logToSheet({ igsid: id, message: text, intent: brain.intent, action: brain.action, sector: brain.sector, reply: brain.reply });
+
+    // ابنِ الردّ: نص + (لو لازم) رابط الديمو كرسالة ثانية
+    const messages = [{ type: "text", text: brain.reply }];
+    if (brain.action === "send_demo") {
+      messages.push({ type: "text", text: `تفضّل شوف نموذج موقع عملناه 👇\n${DEMO}` });
+    }
+    return res.json({ version: "v2", content: { messages } });
+  } catch (e) {
+    console.error("manychat error", e);
+    return res.json(mcReply("أهلين! بساعدك تعمل موقع لمصلحتك. شو نوع شغلك؟"));
+  }
+});
+
+function mcReply(text) {
+  return { version: "v2", content: { messages: [{ type: "text", text }] } };
+}
+
 app.get("/", (_, res) => res.send("Create Branding IG bot is running ✅"));
 app.listen(PORT, () => console.log("listening on " + PORT));
