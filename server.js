@@ -15,8 +15,22 @@ const {
 } = process.env;
 
 const DEMO = "https://id-preview--3de624f6-c149-49ae-bd64-c3d619e28306.lovable.app";
+const WHATSAPP = "https://wa.me/972543272340";
 
-const SYSTEM = `إنت مساعد ذكي للرد على رسائل إنستغرام (DM) لوكالة "Create Branding" — استوديو إبداعي بشمال البلاد بيخدم الأعمال المحلية (تصميم، مواقع، سوشال ميديا، صور وفيديو AI، أتمتة).
+// ردود لما الزبون يبعت صوت/صورة/ملف بدل نص (ManyChat ما بيعطينا المحتوى)
+const VOICE_REPLY = `أهلين! وصلني تسجيل صوتي 🎤 ما بقدر أسمعه هون للأسف. ممكن تكتبلي طلبك بسرعة لأرد عليك فوراً؟\nوإذا بتفضّل تحكي صوتي، تواصل معنا واتساب مباشر 👇\n${WHATSAPP}`;
+const IMAGE_REPLY = `أهلين! وصلتني صورة 📷 لو إلها علاقة بمشروعك حابب تشرحلي بالكتابة شو بتحتاج؟\nأو تواصل معنا واتساب مباشر ونكمّل هناك 👇\n${WHATSAPP}`;
+const OTHER_MEDIA_REPLY = `أهلين! وصلني ملف ما بقدر أفتحه هون 🙏 ممكن تكتبلي طلبك بسرعة؟\nأو تواصل واتساب مباشر 👇\n${WHATSAPP}`;
+
+// بيحدّد رد حسب نوع الرسالة لما ما يكون في نص
+function nonTextReply(type) {
+  const t = (type || "").toLowerCase();
+  if (t.includes("audio") || t.includes("voice")) return VOICE_REPLY;
+  if (t.includes("image") || t.includes("photo") || t.includes("picture")) return IMAGE_REPLY;
+  return OTHER_MEDIA_REPLY;
+}
+
+const SYSTEM = `إنت مساعد ذكي للرد على رسائل إنستغرام (DM) لوكالة "Create Branding" — استوديو إبداعي بشمال البلاد بيخدم الأعمال المحلية (تصميم، مواقع، سوشال ميديا، صور وفيديو AI, أتمتة).
 
 دورك: ترد بسرعة وبقيمة، تجمع lead (اسم + نوع المشروع)، وتحوّل المهتم الجاد للواتساب المباشر.
 
@@ -36,7 +50,7 @@ const SYSTEM = `إنت مساعد ذكي للرد على رسائل إنستغر
 - فيديو AI ٣٠ ثانية مع مونتاج: ٨٠٠ شيكل / فيديو دقيقة: ١٣٠٠ شيكل
 - أتمتة/بوت: حسب المشروع — اسأله شو بدّه الأتمتة تعمل وحوّله للواتساب
 
-لما الزبون يصير جاد (سأل سعر، قال بدّي أبدأ): حوّله للواتساب المباشر: https://wa.me/972543272340
+لما الزبون يصير جاد (سأل سعر، قال بدّي أبدأ): حوّله للواتساب المباشر: ${WHATSAPP}
 
 أرجع JSON بس بدون أي نص إضافي وبدون علامات markdown:
 {"intent":"greeting|price|example|timeline|services|ready_to_book|objection|other","reply":"الرد بالعربي","action":"send_demo|book_meeting|answer|handoff|none","sector":"beauty|restaurant|retail|realestate|other|unknown"}`;
@@ -60,8 +74,14 @@ app.post("/webhook", async (req, res) => {
     for (const entry of req.body.entry || []) {
       for (const ev of entry.messaging || []) {
         const igsid = ev.sender?.id;
+        if (!igsid || ev.message?.is_echo) continue;
         const text = ev.message?.text;
-        if (!igsid || !text || ev.message?.is_echo) continue;
+        // لو الرسالة مش نص (صوت/صورة/attachment) → رد لطيف حسب النوع
+        if (!text) {
+          const att = ev.message?.attachments?.[0];
+          if (att) await sendIG(igsid, nonTextReply(att.type));
+          continue;
+        }
         await handleMessage(igsid, text);
       }
     }
@@ -141,14 +161,24 @@ async function logToSheet(row) {
 
 // ====== مسار ManyChat ======
 // ManyChat بيبعت POST فيه رسالة المستخدم، والسيرفر بيرجّع الردّ مباشرة بصيغة JSON.
-// بـ ManyChat: External Request → Method POST → Body JSON: {"id":"{{user_id}}","text":"{{last_input_text}}"}
+// بـ ManyChat: External Request → Method POST → Body JSON:
+//   {"id":"{{user_id}}","text":"{{last_input_text}}","type":"{{last_reply_type}}"}
 // والردّ بيرجع فيه version+content (Dynamic Block) + bot_reply (لخطوة Send Message اليدوية).
 app.post("/manychat", async (req, res) => {
   try {
     const id = String(req.body.id || req.body.subscriber_id || "anon");
     const text = (req.body.text || req.body.message || "").toString().trim();
-    if (!text) {
-      return res.json(mcReply("أهلين! كيف بقدر أساعدك؟ 😊"));
+    const type = (req.body.type || "").toString().toLowerCase();
+
+    // لو النوع مش نص (صوت/صورة/فيديو)، أو ما في نص أصلاً → رد لطيف حسب النوع
+    const isNonText = (type && !text.length) ||
+                      type.includes("audio") || type.includes("voice") ||
+                      type.includes("image") || type.includes("photo") ||
+                      type.includes("video") || type.includes("file") || type.includes("attachment");
+    if (isNonText || !text) {
+      const reply = nonTextReply(type);
+      logToSheet({ igsid: id, message: `[${type || "media"}]`, intent: "non_text", action: "ask_to_type", sector: "unknown", reply });
+      return res.json(mcReply(reply));
     }
 
     const history = convos.get(id) || [];
