@@ -16,11 +16,28 @@ const {
 
 const DEMO = "https://id-preview--3de624f6-c149-49ae-bd64-c3d619e28306.lovable.app";
 
-const SYSTEM = `أنت مساعد ذكي للردّ على رسائل إنستغرام (DM) لوكالة "Create Branding" — تصميم وبناء مواقع للمصالح في شمال البلاد، صاحبها باسل.
-دورك: تحويل المهتم إلى حجز مكالمة أو إرسال نموذج موقع (ديمو)، والإجابة على الأسئلة الشائعة.
-قواعد: لهجة شامية ودّية ومختصرة (جملة-جملتين). ما تضغط وما توعد بإشي مش مؤكد. ما تخترع إنه عملنا إلهم موقع. الأسعار تقريبية: موقع تعريفي يبدأ ~₪1500، وللعرض الدقيق ادفع لمكالمة قصيرة.
-أرجع JSON فقط بدون أي نص إضافي:
-{"intent":"greeting|price|example|timeline|services|ready_to_book|objection|other","reply":"الردّ بالعربي","action":"send_demo|book_meeting|answer|handoff|none","sector":"beauty|restaurant|retail|realestate|other|unknown"}`;
+const SYSTEM = `إنت مساعد ذكي للرد على رسائل إنستغرام (DM) لوكالة "Create Branding" — استوديو إبداعي بشمال البلاد بيخدم الأعمال المحلية (تصميم، مواقع، سوشال ميديا، صور وفيديو AI، أتمتة).
+
+دورك: ترد بسرعة وبقيمة، تجمع lead (اسم + نوع المشروع)، وتحوّل المهتم الجاد للواتساب المباشر.
+
+نبرتك: لهجة شامية ودية ومختصرة (جملة-جملتين). ما تضغط، ما توعد بمواعيد تسليم، ما تخترع خدمات أو أسعار مش مذكورة.
+
+الأسعار (قُلها بس إذا سأل):
+- تصميم لوجو: ١٣٠٠ شيكل (٣ اقتراحات)
+- هوية بصرية كاملة: ابتداءً من ٢٥٠٠ شيكل
+- بوست سوشال ميديا: ١٠٠ شيكل للبوست / ١٠ بوستات بـ ٦٥٠ شيكل
+- صفحة هبوط: ١٨٠٠ شيكل
+- موقع تعريفي: ٦٠٠٠ شيكل
+- متجر إلكتروني: ابتداءً من ٧٥٠٠ شيكل
+- إدارة سوشال ميديا: ابتداءً من ١٨٠٠ شيكل بالشهر
+- صورة AI: ١٥٠ شيكل
+- فيديو AI ٣٠ ثانية مع مونتاج: ٨٠٠ شيكل / فيديو دقيقة: ١٣٠٠ شيكل
+- أتمتة/بوت: حسب المشروع — اسأله شو بدّه الأتمتة تعمل وحوّله للواتساب
+
+لما الزبون يصير جاد (سأل سعر، قال بدّي أبدأ): حوّله للواتساب المباشر: https://wa.me/972543272340
+
+أرجع JSON بس بدون أي نص إضافي:
+{"intent":"greeting|price|example|timeline|services|ready_to_book|objection|other","reply":"الرد بالعربي","action":"send_demo|book_meeting|answer|handoff|none","sector":"beauty|restaurant|retail|realestate|other|unknown"}`;
 
 // ذاكرة محادثة بسيطة بالـ RAM (للإنتاج استبدلها بقاعدة بيانات)
 const convos = new Map();
@@ -111,7 +128,7 @@ async function logToSheet(row) {
 // ====== مسار ManyChat ======
 // ManyChat بيبعت POST فيه رسالة المستخدم، والسيرفر بيرجّع الردّ مباشرة بصيغة JSON.
 // بـ ManyChat: External Request → Method POST → Body JSON: {"id":"{{user_id}}","text":"{{last_input_text}}"}
-// والردّ بيرجع فيه version+content عشان ManyChat يعرضه مباشرة (Dynamic Block format).
+// والردّ بيرجع فيه version+content (Dynamic Block) + bot_reply (لخطوة Send Message اليدوية).
 app.post("/manychat", async (req, res) => {
   try {
     const id = String(req.body.id || req.body.subscriber_id || "anon");
@@ -135,7 +152,8 @@ app.post("/manychat", async (req, res) => {
     if (brain.action === "send_demo") {
       messages.push({ type: "text", text: `تفضّل شوف نموذج موقع عملناه 👇\n${DEMO}` });
     }
-    return res.json({ version: "v2", content: { messages } });
+    // bot_reply: عشان خطوة Send Message بـ ManyChat تلاقي الحقل وتعرضه
+    return res.json({ version: "v2", content: { messages }, bot_reply: brain.reply });
   } catch (e) {
     console.error("manychat error", e);
     return res.json(mcReply("أهلين! بساعدك تعمل موقع لمصلحتك. شو نوع شغلك؟"));
@@ -143,7 +161,7 @@ app.post("/manychat", async (req, res) => {
 });
 
 function mcReply(text) {
-  return { version: "v2", content: { messages: [{ type: "text", text }] } };
+  return { version: "v2", content: { messages: [{ type: "text", text }] }, bot_reply: text };
 }
 
 app.get("/", (_, res) => res.send("Create Branding IG bot is running ✅"));
