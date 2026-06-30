@@ -22,6 +22,8 @@ const SYSTEM = `إنت مساعد ذكي للرد على رسائل إنستغر
 
 نبرتك: لهجة شامية ودية ومختصرة (جملة-جملتين). ما تضغط، ما توعد بمواعيد تسليم، ما تخترع خدمات أو أسعار مش مذكورة.
 
+مهم جداً: جاوب على سؤال الزبون مباشرة. لو سأل عن الأسعار اعطيه الأسعار، لو سأل عن الخدمات عددها له. ما تكرر نفس سؤال "شو نوع شغلك" إذا الزبون سأل سؤال واضح.
+
 الأسعار (قُلها بس إذا سأل):
 - تصميم لوجو: ١٣٠٠ شيكل (٣ اقتراحات)
 - هوية بصرية كاملة: ابتداءً من ٢٥٠٠ شيكل
@@ -36,7 +38,7 @@ const SYSTEM = `إنت مساعد ذكي للرد على رسائل إنستغر
 
 لما الزبون يصير جاد (سأل سعر، قال بدّي أبدأ): حوّله للواتساب المباشر: https://wa.me/972543272340
 
-أرجع JSON بس بدون أي نص إضافي:
+أرجع JSON بس بدون أي نص إضافي وبدون علامات markdown:
 {"intent":"greeting|price|example|timeline|services|ready_to_book|objection|other","reply":"الرد بالعربي","action":"send_demo|book_meeting|answer|handoff|none","sector":"beauty|restaurant|retail|realestate|other|unknown"}`;
 
 // ذاكرة محادثة بسيطة بالـ RAM (للإنتاج استبدلها بقاعدة بيانات)
@@ -95,10 +97,22 @@ async function callBrain(history) {
     });
     const data = await r.json();
     const raw = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
-    return JSON.parse(raw.replace(/```json|```/g, "").trim());
+    const clean = raw.replace(/```json|```/g, "").trim();
+
+    // جرّب تلقط الـ JSON من أي مكان بالرد (حتى لو محاط بكلام)
+    const match = clean.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0]);
+        if (parsed && parsed.reply) return parsed;
+      } catch (_) { /* بنكمّل للحل الاحتياطي تحت */ }
+    }
+
+    // ما في JSON صالح؟ استعمل النص اللي رجّعه Claude نفسه كرد (البوت ما بيقف ولا بيكرر نفسه)
+    return { intent: "other", reply: clean || "أهلين! كيف بقدر أساعدك؟ 😊", action: "none", sector: "unknown" };
   } catch (e) {
     console.error("brain error", e);
-    return { intent: "other", reply: "أهلين! بساعدك تعمل موقع لمصلحتك. شو نوع شغلك؟", action: "answer", sector: "unknown" };
+    return { intent: "other", reply: "أهلين! كيف بقدر أساعدك؟ احكيلي شو بتدوّر عليه 😊", action: "answer", sector: "unknown" };
   }
 }
 
@@ -156,7 +170,7 @@ app.post("/manychat", async (req, res) => {
     return res.json({ version: "v2", content: { messages }, bot_reply: brain.reply });
   } catch (e) {
     console.error("manychat error", e);
-    return res.json(mcReply("أهلين! بساعدك تعمل موقع لمصلحتك. شو نوع شغلك؟"));
+    return res.json(mcReply("أهلين! كيف بقدر أساعدك؟ احكيلي شو بتدوّر عليه 😊"));
   }
 });
 
