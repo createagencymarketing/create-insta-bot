@@ -7,10 +7,10 @@ const app = express();
 app.use(express.json());
 
 const {
-  VERIFY_TOKEN,          // أي نص سري تخترعه — لازم يطابق اللي بتحطه بإعداد Webhook
-  IG_TOKEN,              // Instagram/Page access token
-  ANTHROPIC_API_KEY,     // مفتاح Claude API
-  SHEETS_WEBHOOK_URL,    // رابط Google Apps Script web app (انظر append-to-sheet.gs)
+  VERIFY_TOKEN,
+  IG_TOKEN,
+  ANTHROPIC_API_KEY,
+  SHEETS_WEBHOOK_URL,
   PORT = 3000,
 } = process.env;
 
@@ -22,7 +22,6 @@ const VOICE_REPLY = `أهلين! وصلني تسجيل صوتي 🎤 ما بقد
 const IMAGE_REPLY = `أهلين! وصلتني صورة 📷 لو إلها علاقة بمشروعك حابب تشرحلي بالكتابة شو بتحتاج؟\nأو تواصل معنا واتساب مباشر ونكمّل هناك 👇\n${WHATSAPP}`;
 const OTHER_MEDIA_REPLY = `أهلين! وصلني ملف ما بقدر أفتحه هون 🙏 ممكن تكتبلي طلبك بسرعة؟\nأو تواصل واتساب مباشر 👇\n${WHATSAPP}`;
 
-// بيحدّد رد حسب نوع الرسالة لما ما يكون في نص
 function nonTextReply(type) {
   const t = (type || "").toLowerCase();
   if (t.includes("audio") || t.includes("voice")) return VOICE_REPLY;
@@ -32,11 +31,18 @@ function nonTextReply(type) {
 
 const SYSTEM = `إنت مساعد ذكي للرد على رسائل إنستغرام (DM) لوكالة "Create Branding" — استوديو إبداعي بشمال البلاد بيخدم الأعمال المحلية (تصميم، مواقع، سوشال ميديا، صور وفيديو AI, أتمتة).
 
-دورك: ترد بسرعة وبقيمة، تجمع lead (اسم + نوع المشروع)، وتحوّل المهتم الجاد للواتساب المباشر.
+دورك: ترد بسرعة وبقيمة، تفهم شغل الزبون، تقترح عليه حلول مناسبة، تجمع lead، وتحوّل المهتم الجاد للواتساب.
 
-نبرتك: لهجة شامية ودية ومختصرة (جملة-جملتين). ما تضغط، ما توعد بمواعيد تسليم، ما تخترع خدمات أو أسعار مش مذكورة.
+نبرتك: لهجة شامية ودية ومختصرة (جملة-جملتين، بالكتير تلاتة). ما تضغط، ما توعد بمواعيد تسليم، ما تخترع خدمات أو أسعار مش مذكورة.
 
-مهم جداً: جاوب على سؤال الزبون مباشرة. لو سأل عن الأسعار اعطيه الأسعار، لو سأل عن الخدمات عددها له. ما تكرر نفس سؤال "شو نوع شغلك" إذا الزبون سأل سؤال واضح.
+# مهم: كن مستشار مبيعات استباقي
+لما تعرف نوع شغل الزبون، ما تكتفي بالرد — اقترح عليه ٢-٣ خدمات مناسبة لمجاله تحديداً، باختصار وبحماس. أمثلة (اهتدِ فيها، مش حصرية):
+- مطعم/كافيه: بوستات أكل جذابة + فيديو للأطباق + إدارة سوشال ميديا شهرية.
+- عيادة تجميل/كلينك: صور احترافية للنتائج + إعلانات ممولة + موقع حجز مواعيد.
+- متجر/محل: متجر إلكتروني + تصوير منتجات + إعلانات للعروض.
+- عقارات: فيديوهات للعقارات + موقع معرض مشاريع + إعلانات مستهدفة.
+- بزنس جديد بدون هوية: لوجو + هوية بصرية كاملة + موقع تعريفي (كباقة بداية).
+دايماً اربط الاقتراح بفايدة للزبون (يجيب زباين أكتر، يبيّن احترافي، يوفّر وقت)، وبعدها لو تفاعل حوّله للواتساب لعرض مفصّل.
 
 الأسعار (قُلها بس إذا سأل):
 - تصميم لوجو: ١٣٠٠ شيكل (٣ اقتراحات)
@@ -50,15 +56,15 @@ const SYSTEM = `إنت مساعد ذكي للرد على رسائل إنستغر
 - فيديو AI ٣٠ ثانية مع مونتاج: ٨٠٠ شيكل / فيديو دقيقة: ١٣٠٠ شيكل
 - أتمتة/بوت: حسب المشروع — اسأله شو بدّه الأتمتة تعمل وحوّله للواتساب
 
+مهم جداً: جاوب على سؤال الزبون مباشرة. لو سأل عن الأسعار اعطيه الأسعار، لو سأل عن الخدمات عددها له. ما تكرر نفس سؤال "شو نوع شغلك" إذا الزبون سأل سؤال واضح.
+
 لما الزبون يصير جاد (سأل سعر، قال بدّي أبدأ): حوّله للواتساب المباشر: ${WHATSAPP}
 
 أرجع JSON بس بدون أي نص إضافي وبدون علامات markdown:
 {"intent":"greeting|price|example|timeline|services|ready_to_book|objection|other","reply":"الرد بالعربي","action":"send_demo|book_meeting|answer|handoff|none","sector":"beauty|restaurant|retail|realestate|other|unknown"}`;
 
-// ذاكرة محادثة بسيطة بالـ RAM (للإنتاج استبدلها بقاعدة بيانات)
 const convos = new Map();
 
-// 1) التحقق من الويبهوك (Meta بتطلبه مرة عند الإعداد)
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -67,16 +73,14 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-// 2) استقبال الرسائل
 app.post("/webhook", async (req, res) => {
-  res.sendStatus(200); // أكّد الاستلام فوراً
+  res.sendStatus(200);
   try {
     for (const entry of req.body.entry || []) {
       for (const ev of entry.messaging || []) {
         const igsid = ev.sender?.id;
         if (!igsid || ev.message?.is_echo) continue;
         const text = ev.message?.text;
-        // لو الرسالة مش نص (صوت/صورة/attachment) → رد لطيف حسب النوع
         if (!text) {
           const att = ev.message?.attachments?.[0];
           if (att) await sendIG(igsid, nonTextReply(att.type));
@@ -97,13 +101,11 @@ async function handleMessage(igsid, text) {
   if (brain.action === "send_demo") await sendIG(igsid, `تفضّل شوف نموذج موقع عملناه 👇\n${DEMO}`);
 
   history.push({ role: "assistant", content: brain.reply });
-  convos.set(igsid, history.slice(-12)); // احتفظ بآخر 12 رسالة
+  convos.set(igsid, history.slice(-12));
 
-  // سجّل/حدّث بالـ CRM
   await logToSheet({ igsid, message: text, intent: brain.intent, action: brain.action, sector: brain.sector, reply: brain.reply });
 }
 
-// 3) العقل — Claude
 async function callBrain(history) {
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -119,16 +121,13 @@ async function callBrain(history) {
     const raw = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
     const clean = raw.replace(/```json|```/g, "").trim();
 
-    // جرّب تلقط الـ JSON من أي مكان بالرد (حتى لو محاط بكلام)
     const match = clean.match(/\{[\s\S]*\}/);
     if (match) {
       try {
         const parsed = JSON.parse(match[0]);
         if (parsed && parsed.reply) return parsed;
-      } catch (_) { /* بنكمّل للحل الاحتياطي تحت */ }
+      } catch (_) { /* fallback */ }
     }
-
-    // ما في JSON صالح؟ استعمل النص اللي رجّعه Claude نفسه كرد (البوت ما بيقف ولا بيكرر نفسه)
     return { intent: "other", reply: clean || "أهلين! كيف بقدر أساعدك؟ 😊", action: "none", sector: "unknown" };
   } catch (e) {
     console.error("brain error", e);
@@ -136,7 +135,6 @@ async function callBrain(history) {
   }
 }
 
-// 4) إرسال رسالة إنستغرام (نافذة 24 ساعة)
 async function sendIG(igsid, text) {
   try {
     await fetch(`https://graph.facebook.com/v21.0/me/messages?access_token=${IG_TOKEN}`, {
@@ -147,7 +145,6 @@ async function sendIG(igsid, text) {
   } catch (e) { console.error("send error", e); }
 }
 
-// 5) تسجيل بالـ CRM عبر Google Apps Script
 async function logToSheet(row) {
   if (!SHEETS_WEBHOOK_URL) return;
   try {
@@ -160,17 +157,13 @@ async function logToSheet(row) {
 }
 
 // ====== مسار ManyChat ======
-// ManyChat بيبعت POST فيه رسالة المستخدم، والسيرفر بيرجّع الردّ مباشرة بصيغة JSON.
-// بـ ManyChat: External Request → Method POST → Body JSON:
-//   {"id":"{{user_id}}","text":"{{last_input_text}}","type":"{{last_reply_type}}"}
-// والردّ بيرجع فيه version+content (Dynamic Block) + bot_reply (لخطوة Send Message اليدوية).
+// Body: {"id":"{{user_id}}","text":"{{last_input_text}}","type":"{{last_reply_type}}"}
 app.post("/manychat", async (req, res) => {
   try {
     const id = String(req.body.id || req.body.subscriber_id || "anon");
     const text = (req.body.text || req.body.message || "").toString().trim();
     const type = (req.body.type || "").toString().toLowerCase();
 
-    // لو النوع مش نص (صوت/صورة/فيديو)، أو ما في نص أصلاً → رد لطيف حسب النوع
     const isNonText = (type && !text.length) ||
                       type.includes("audio") || type.includes("voice") ||
                       type.includes("image") || type.includes("photo") ||
@@ -188,15 +181,12 @@ app.post("/manychat", async (req, res) => {
     history.push({ role: "assistant", content: brain.reply });
     convos.set(id, history.slice(-12));
 
-    // سجّل بالـ CRM (ما بيوقف الردّ)
     logToSheet({ igsid: id, message: text, intent: brain.intent, action: brain.action, sector: brain.sector, reply: brain.reply });
 
-    // ابنِ الردّ: نص + (لو لازم) رابط الديمو كرسالة ثانية
     const messages = [{ type: "text", text: brain.reply }];
     if (brain.action === "send_demo") {
       messages.push({ type: "text", text: `تفضّل شوف نموذج موقع عملناه 👇\n${DEMO}` });
     }
-    // bot_reply: عشان خطوة Send Message بـ ManyChat تلاقي الحقل وتعرضه
     return res.json({ version: "v2", content: { messages }, bot_reply: brain.reply });
   } catch (e) {
     console.error("manychat error", e);
